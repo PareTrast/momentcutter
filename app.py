@@ -7,14 +7,24 @@ import io
 import numpy as np
 from textblob import TextBlob
 from moviepy import VideoFileClip, AudioFileClip
-
+from streamlit_extras.bottom_container import bottom
 # set title of the web app
-st.title("Short-Form Content Clipper")
+st.title("MomentCutter")
 
 # add a description
 st.write(
     "Upload a video or audio file to find interesting moments and create short clips."
 )
+
+with bottom():
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write(
+            "If you find MomentCutter useful, consider supporting its development:"
+        )
+
+    with col2:
+        st.link_button("Buy Me a Coffee", "https://www.buymeacoffee.com/kdickerson")
 
 
 # function to transcribe audio and return segments with timestamps
@@ -304,3 +314,4 @@ if uploaded_file is not None:
                     mime="video/mp4" if is_video else "audio/mpeg",
                 )
             st.write("---")
+
