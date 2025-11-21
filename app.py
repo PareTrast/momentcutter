@@ -5,9 +5,13 @@ import whisper
 import cv2
 import io
 import numpy as np
+from PIL import Image
 from textblob import TextBlob
-from moviepy import VideoFileClip, AudioFileClip
 from streamlit_extras.bottom_container import bottom
+
+# IMPORT NEW VIDEO EDITING FUNCTION
+from video_editor import create_short_clip
+
 # set title of the web app
 st.title("MomentCutter")
 
@@ -43,56 +47,6 @@ def analyze_sentiment(text):
     Analyzes the sentiment of a given text using TextBlob.
     """
     return TextBlob(text).sentiment
-
-
-# Function to clip video or audio
-def create_clip_in_memory(input_path, start_time, end_time, is_video):
-    """
-    Creates a clip from a video or audio file and returns it as an in-memory byte buffer.
-    This function now writes to a temporary file first, then reads its content into memory,
-    and finally deletes the temporary file.
-    """
-    output_temp_file_path = None
-    try:
-        if is_video:
-            suffix = ".mp4"
-            codec = "libx264"
-            audio_codec = "aac"
-            with VideoFileClip(input_path) as clip:
-                end_time = min(end_time + 1.0, clip.duration)
-                sub_clip = clip.subclipped(start_time, end_time)
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=suffix
-                ) as tmp_out_file:
-                    output_temp_file_path = tmp_out_file.name
-                sub_clip.write_videofile(
-                    output_temp_file_path,
-                    codec=codec,
-                    audio_codec=audio_codec,
-                    logger=None,
-                )
-        else:
-            suffix = ".mp3"
-            codec = "mp3"
-            with AudioFileClip(input_path) as clip:
-                end_time = min(end_time + 1.0, clip.duration)
-                sub_clip = clip.subclipped(start_time, end_time)
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=suffix
-                ) as tmp_out_file:
-                    output_temp_file_path = tmp_out_file.name
-                sub_clip.write_audiofile(
-                    output_temp_file_path, codec=codec, logger=None
-                )
-
-        # Read the content of the temporary output file into memory
-        with open(output_temp_file_path, "rb") as f:
-            clip_data = f.read()
-        return clip_data
-    finally:
-        # Clean up the temporary output file
-        if output_temp_file_path and os.path.exists(output_temp_file_path):
-            os.remove(output_temp_file_path)
 
 
 # Function to analyze video for scene changes
@@ -147,6 +101,11 @@ uploaded_file = st.file_uploader(
     "Choose a file", type=["mp4", "mov", "avi", "mp3", "wav", "m4a"]
 )
 
+# Add a file uploader for the background image
+background_img_file = st.file_uploader(
+    "Optional: Add a background image for video clips", type=["png", "jpg", "jpeg"]
+)
+
 # Add a text input for keywords
 keywords_input = st.text_input(
     "Optional: Enter keywords to look for (comma-separated)", "AI, technology, future"
@@ -161,6 +120,16 @@ if uploaded_file is not None:
     ) as tmpfile:
         tmpfile.write(uploaded_file.getvalue())
         temp_filename = tmpfile.name
+
+    # Handle background image upload
+    temp_bg_image_filename = None
+    if background_img_file is not None:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=os.path.splitext(background_img_file.name)[1]
+        ) as tmp_bg_file:
+            tmp_bg_file.write(background_img_file.getvalue())
+            temp_bg_image_filename = tmp_bg_file.name
+        st.image(temp_bg_image_filename, caption="Background Image Preview", width=200)
 
     st.write("File uploaded. Here's a preview: ")
 
@@ -290,28 +259,30 @@ if uploaded_file is not None:
             # Create a button to generate this specific clip
             if st.button(f"Generate Clip {i}", key=f"clip_{i}"):
                 with st.spinner(f"Generating Clip {i}..."):
-                    # Generate the clip in memory instead of writing to a file
-                    clip_data_bytes = create_clip_in_memory(
+                    # Call the new, robust function from video_editor.py
+                    clip_data_bytes = create_short_clip(
                         temp_filename,
                         clip_data["start"],
                         clip_data["end"],
                         is_video,
+                        background_image_path=temp_bg_image_filename,
                     )
                     # Store the byte data in session state
                     st.session_state[f"download_clip_{i}"] = clip_data_bytes
 
             # Check if there is a generated clip ready for download
             if f"download_clip_{i}" in st.session_state:
-                clip_filename = (
-                    f"clip_{i}_{int(clip_data['start'])}-{int(clip_data['end'])}.mp4"
-                    if is_video
-                    else f"clip_{i}_{int(clip_data['start'])}-{int(clip_data['end'])}.mp3"
-                )
+                # If a background image was used, the output is always a video
+                output_is_video = is_video or (temp_bg_image_filename is not None)
+                file_extension = ".mp4" if output_is_video else ".mp3"
+                mime_type = "video/mp4" if output_is_video else "audio/mpeg"
+
+                clip_filename = f"clip_{i}_{int(clip_data['start'])}-{int(clip_data['end'])}{file_extension}"
+
                 st.download_button(
                     label=f"Download {clip_filename}",
                     data=st.session_state[f"download_clip_{i}"],
                     file_name=clip_filename,
-                    mime="video/mp4" if is_video else "audio/mpeg",
+                    mime=mime_type,
                 )
             st.write("---")
-
